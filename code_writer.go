@@ -3,11 +3,13 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
 type CodeWriter struct {
-	file *os.File
+	file      *os.File
+	className string
 }
 
 var (
@@ -33,30 +35,65 @@ var (
 	count = 0
 )
 
-func (c *CodeWriter) init(filePath string) {
+func (c *CodeWriter) init(outputFile *os.File) {
 	var err error
-	c.file, err = os.Create(filePath)
-	fmt.Printf("Writing file to...: %s\n", filePath)
+	c.file = outputFile
+	fmt.Printf("Writing file to...: %s\n", outputFile.Name())
 	check(err)
 }
 
+func (c *CodeWriter) setClassName(className string) {
+	c.className = className
+}
+
+func (c *CodeWriter) WriteBootStrap() {
+	c.write(formatBootStrap())
+}
+
 func (c *CodeWriter) WriteArithmetic(cmd string) {
+	cmds := strings.Split(cmd, " ")
 	// eq, lt, gt, sub, add, neg, or, not, and
-	switch cmd {
+	switch cmds[0] {
 	case "eq", "lt", "gt":
-		c.write(formatComp(opMap[cmd], count))
+		c.write(formatComp(opMap[cmds[0]], count))
 		count++
 		break
 	case "not", "neg":
-		c.write(formatNegNot(opMap[cmd]))
+		c.write(formatNegNot(opMap[cmds[0]]))
 		break
 	case "and", "or", "add", "sub":
-		c.write(formatArithmeticLogical(opMap[cmd]))
+		c.write(formatArithmeticLogical(opMap[cmds[0]]))
 		break
 	default:
 		panic("Unidentified operation")
 	}
+}
 
+func (c *CodeWriter) WriteControl(cmd string) {
+	cmds := strings.Split(cmd, " ")
+	switch cmds[0] {
+	case "label":
+		c.write(formatLabel(c.className, cmds[1]))
+		break
+	case "goto":
+		c.write(formatGoto(c.className, cmds[1]))
+		break
+	case "if-goto":
+		c.write(formatIf(c.className, cmds[1]))
+		break
+	case "function":
+		nVar, _ := strconv.Atoi(cmds[2])
+		c.write(formatFunction(cmds[1], nVar))
+		break
+	case "call":
+		nArg, _ := strconv.Atoi(cmds[2])
+		c.write(formatCall(cmds[1], nArg, cmds[1]+"$return."+strconv.Itoa(count)))
+		count++
+		break
+	case "return":
+		c.write(formatReturn())
+		break
+	}
 }
 
 func (c *CodeWriter) WritePushPop(cmd string) {
@@ -74,7 +111,7 @@ func (c *CodeWriter) WritePushPop(cmd string) {
 			c.write(formatPushTemp(cmds[2], segMap[cmds[1]]))
 			break
 		case "static":
-			c.write(formatPushStatic(cmds[2]))
+			c.write(formatPushStatic(c.className, cmds[2]))
 			break
 		default:
 			panic("Unidentified segment to push" + cmds[1])
@@ -89,7 +126,7 @@ func (c *CodeWriter) WritePushPop(cmd string) {
 			c.write(formatPopTemp(cmds[2], segMap[cmds[1]]))
 			break
 		case "static":
-			c.write(formatPopStatic(cmds[2], segMap[cmds[1]]))
+			c.write(formatPopStatic(c.className, cmds[2], segMap[cmds[1]]))
 			break
 		default:
 			panic("Unidentified segment to pop " + cmds[1])
@@ -99,141 +136,7 @@ func (c *CodeWriter) WritePushPop(cmd string) {
 	}
 }
 
-func formatComp(op string, pos int) string {
-	return fmt.Sprintf(`@SP
-AM=M-1
-D=M
-A=A-1
-D=M-D
-@COMP%d
-D; %s
-@SP
-AM=M-1
-M=0
-@DONE%d
-D; JMP
-(COMP%d)
-@SP
-AM=M-1
-M=-1
-(DONE%d)
-@SP
-M=M+1
-`, pos, op, pos, pos, pos)
-}
-
-func formatArithmeticLogical(op string) string {
-	return fmt.Sprintf(`@SP
-AM=M-1
-D=M
-A=A-1
-M=M%sD
-`, op)
-}
-
-func formatNegNot(op string) string {
-	return fmt.Sprintf(`@SP
-A=M-1
-M=%sM
-`, op)
-}
-
-func formatPushConst(cons string) string {
-	return fmt.Sprintf(`@%s
-D=A
-@SP
-A=M
-M=D
-@SP
-M=M+1
-`, cons)
-}
-
-func formatPushSeg(pos string, seg string) string {
-	return fmt.Sprintf(`@%s
-D=A
-@%s
-A=D+M
-D=M
-@SP
-A=M
-M=D
-@SP
-M=M+1
-`, pos, seg)
-}
-
-func formatPushTemp(pos string, seg string) string {
-	return fmt.Sprintf(`@%s
-D=A
-@%s
-A=D+A
-D=M
-@SP
-A=M
-M=D
-@SP
-M=M+1
-`, pos, seg)
-}
-
-func formatPushStatic(pos string) string {
-	return fmt.Sprintf(`@STATIC%s
-D=M
-@SP
-A=M
-M=D
-@SP
-M=M+1
-`, pos)
-}
-
-func formatPopSeg(pos string, seg string) string {
-	return fmt.Sprintf(`@%s
-D=A
-@%s
-D=D+M
-@R13
-M=D
-@SP
-AM=M-1
-D=M
-@R13
-A=M
-M=D
-`, pos, seg)
-}
-
-func formatPopTemp(pos string, seg string) string {
-	return fmt.Sprintf(`@%s
-D=A
-@%s
-D=D+A
-@R13
-M=D
-@SP
-AM=M-1
-D=M
-@R13
-A=M
-M=D
-`, pos, seg)
-}
-
-func formatPopStatic(pos string, seg string) string {
-	return fmt.Sprintf(`@SP
-AM=M-1
-D=M
-@STATIC%s
-M=D
-`, pos)
-}
-
 func (c *CodeWriter) write(cmd string) {
 	fmt.Print("Writing... " + cmd + "\n")
 	c.file.WriteString(cmd)
-}
-
-func (c *CodeWriter) close() error {
-	return c.file.Close()
 }

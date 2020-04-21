@@ -9,20 +9,23 @@ import (
 
 // Parser ...
 type Parser struct {
-	file       *os.File
 	scanner    *bufio.Scanner
 	codeWriter *CodeWriter
 	nextLine   string
 }
 
-func (p *Parser) init(filePath string) {
-	var err error
-	p.file, err = os.Open(filePath)
+func (p *Parser) init(outputFile *os.File, isDir bool) {
 	p.codeWriter = &CodeWriter{}
-	fmt.Printf("Reading file from...: %s\n", filePath)
-	check(err)
-	p.scanner = bufio.NewScanner(p.file)
-	p.codeWriter.init(strings.Replace(filePath, "vm", "asm", 1))
+	p.codeWriter.init(outputFile)
+	if isDir {
+		p.codeWriter.WriteBootStrap()
+	}
+}
+
+func (p *Parser) nextFile(className string, inputFile *os.File) {
+	fmt.Printf("Reading file from...: %s\n", inputFile.Name())
+	p.scanner = bufio.NewScanner(inputFile)
+	p.codeWriter.setClassName(className)
 }
 
 func (p *Parser) hasMoreCommands() bool {
@@ -41,21 +44,22 @@ func (p *Parser) advance() {
 		p.codeWriter.WritePushPop(p.nextLine)
 	} else if isArithmeticCmd(p.nextLine) {
 		p.codeWriter.WriteArithmetic(p.nextLine)
+	} else {
+		p.codeWriter.WriteControl(p.nextLine)
 	}
-}
-
-func (p *Parser) close() error {
-	if err := p.codeWriter.close(); err != nil {
-		return err
-	}
-	return p.file.Close()
 }
 
 func isArithmeticCmd(cmd string) bool {
-	return opMap[cmd] != ""
+	return strings.HasPrefix(cmd, "and") ||
+		strings.HasPrefix(cmd, "sub") ||
+		strings.HasPrefix(cmd, "add") ||
+		strings.HasPrefix(cmd, "or") ||
+		strings.HasPrefix(cmd, "neg") ||
+		strings.HasPrefix(cmd, "not") ||
+		strings.HasPrefix(cmd, "eq") ||
+		strings.HasPrefix(cmd, "lt") ||
+		strings.HasPrefix(cmd, "gt")
 }
-
 func isPushPopCmd(cmd string) bool {
 	return strings.HasPrefix(cmd, "push") || strings.HasPrefix(cmd, "pop")
-
 }
